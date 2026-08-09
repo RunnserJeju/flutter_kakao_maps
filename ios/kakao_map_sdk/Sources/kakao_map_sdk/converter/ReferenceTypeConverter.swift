@@ -12,8 +12,11 @@ extension UIColor {
 
 extension UIImage {
     func resize(size: CGSize) -> UIImage {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.preferredRange = .standard
         let renderer = UIGraphicsImageRenderer(
-            size: size
+            size: size,
+            format: format
         )
         return renderer.image { _ in
             self.draw(in: CGRect(
