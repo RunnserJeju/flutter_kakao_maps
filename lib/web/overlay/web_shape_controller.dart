@@ -10,24 +10,32 @@ class WebShapeController with WebShapeControllerHandler {
   @override
   final WebOverlayController manager;
 
+  JSFunction? _zoomChangedCallbackRef;
+
   WebShapeController._(this.id, this.controller, this.manager);
 
   @override
   Future<void> createShapeLayer() async {
-    addEventListener(controller, "zoom_changed", _zoomChangedEventHandler.toJS);
+    // Kakao's geographic overlays follow camera movement automatically.
+    // Only zoom-dependent styles need an explicit synchronization event.
+    _zoomChangedCallbackRef = _zoomChangedEventHandler.toJS;
+    addEventListener(controller, "zoom_changed", _zoomChangedCallbackRef!);
   }
 
   @override
   Future<void> removeShapeLayer() async {
-    removeEventListener(
-      controller,
-      "zoom_changed",
-      _zoomChangedEventHandler.toJS,
-    );
-    for (var shape in _webPolygon.keys) {
+    if (_zoomChangedCallbackRef != null) {
+      removeEventListener(
+        controller,
+        "zoom_changed",
+        _zoomChangedCallbackRef!,
+      );
+      _zoomChangedCallbackRef = null;
+    }
+    for (final shape in _webPolygon.keys.toList()) {
       await removePolygonShape(shape);
     }
-    for (var shape in _webPolyline.keys) {
+    for (final shape in _webPolyline.keys.toList()) {
       await removePolylineShape(shape);
     }
   }
@@ -135,7 +143,10 @@ class WebShapeController with WebShapeControllerHandler {
     final style = manager._polylineStyles[styleId]![0];
     final bodyOptions = _webPolyline[shapeId]!.option;
     final strokeOptions = _webPolyline[shapeId]!.strokeOption;
+    final path = point.toPolylinePath();
 
+    bodyOptions.path = path;
+    strokeOptions?.path = path;
     strokeOptions?.strokeColor = _getColorCode(style.strokeColor);
     bodyOptions.strokeColor = _getColorCode(style.color);
     strokeOptions?.strokeWeight = style.lineWidth * .5 + style.strokeWidth * .5;
@@ -145,6 +156,7 @@ class WebShapeController with WebShapeControllerHandler {
     _webPolyline[shapeId]!.strokeElement?.setOptions(strokeOptions!);
     _webPolyline[shapeId]!.option = bodyOptions;
     _webPolyline[shapeId]!.strokeOption = strokeOptions;
+    _webPolyline[shapeId]!.point = point;
   }
 
   @override
@@ -156,12 +168,14 @@ class WebShapeController with WebShapeControllerHandler {
     final style = manager._polygonStyles[styleId]![0];
     final options = _webPolygon[shapeId]!.option;
 
+    options.path = point.toPolygonPath();
     options.fillColor = _getColorCode(style.color);
     options.strokeColor = _getColorCode(style.strokeColor);
     options.strokeWeight = style.strokeWidth;
 
     _webPolygon[shapeId]!.element.setOptions(options);
     _webPolygon[shapeId]!.option = options;
+    _webPolygon[shapeId]!.point = point;
   }
 
   WebPolylineOption _getPolylineElementOption(
@@ -237,6 +251,7 @@ class WebShapeController with WebShapeControllerHandler {
       shapeId,
       polyline,
       polylineStroke,
+      point: point,
       option: polylineOption,
       strokeOption: polylineStrokeOption,
       style: style,
@@ -265,6 +280,7 @@ class WebShapeController with WebShapeControllerHandler {
     _webPolygon[shapeId] = WebPolygonShape(
       shapeId,
       polygon,
+      point: point,
       option: polygonOption,
       style: style,
     );
@@ -301,14 +317,14 @@ class WebShapeController with WebShapeControllerHandler {
 
   @override
   Future<void> showAllPolygon() async {
-    for (var shape in _webPolyline.keys) {
+    for (var shape in _webPolygon.keys) {
       await changePolygonVisible(shape, true);
     }
   }
 
   @override
   Future<void> hideAllPolygon() async {
-    for (var shape in _webPolyline.keys) {
+    for (var shape in _webPolygon.keys) {
       await changePolygonVisible(shape, false);
     }
   }

@@ -10,17 +10,24 @@ void main() {
   final overlayChannel = ChannelType.overlay.channelWithId(viewId);
 
   late KakaoMapController controller;
+  MethodCall? lastDimScreenCall;
+  MethodCall? lastLabelCall;
+  MethodCall? lastPolylineTextCall;
 
   String orFallback(String? requested, String fallback) {
     return (requested != null && requested.isNotEmpty) ? requested : fallback;
   }
 
   setUp(() {
+    lastDimScreenCall = null;
+    lastLabelCall = null;
+    lastPolylineTextCall = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(viewChannel, (call) async => null);
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(overlayChannel, (call) async {
+      lastLabelCall = call;
       final args = Map<String, dynamic>.from(call.arguments as Map);
       final type = args['type'] as int?;
 
@@ -44,11 +51,18 @@ void main() {
           return orFallback(poi['id'] as String?, 'mock-lod-poi-id');
 
         case 'addPolylineText':
+          lastPolylineTextCall = call;
           final label = Map<String, dynamic>.from(args['label'] as Map);
           return orFallback(
             label['id'] as String?,
             'mock-polyline-text-id',
           );
+
+        case 'changePolylineTextStyle':
+        case 'changePolylineTextVisible':
+        case 'removePolylineText':
+          lastPolylineTextCall = call;
+          return null;
 
         case 'addPoiBadge':
           final badge = Map<String, dynamic>.from(args['badge'] as Map);
@@ -93,11 +107,16 @@ void main() {
           return orFallback(route['id'] as String?, fallback);
 
         case 'addHighlightPolygonShape':
+          lastDimScreenCall = call;
           final polygon = Map<String, dynamic>.from(args['polygon'] as Map);
           return orFallback(
             polygon['id'] as String?,
             'mock-dim-polygon-id',
           );
+
+        case 'setDimCover':
+          lastDimScreenCall = call;
+          return null;
 
         default:
           return null;
@@ -155,6 +174,100 @@ void main() {
       expect(poi.rank, 9);
     });
 
+    test('addPoi sends the native transform method key', () async {
+      final style = PoiStyle(
+        id: 'poi-style-transform',
+        icon: KImage.fromData(Uint8List.fromList([3, 2, 1]), 16, 16),
+      );
+      await controller.addPoiStyle(style);
+
+      await controller.labelLayer.addPoi(
+        const LatLng(37.55, 126.98),
+        style: style,
+        transform: TransformMethod.decal,
+      );
+
+      final arguments = Map<String, dynamic>.from(
+        lastLabelCall!.arguments as Map,
+      );
+      final poiPayload = Map<String, dynamic>.from(arguments['poi'] as Map);
+      expect(poiPayload['transformMethod'], TransformMethod.decal.value);
+      expect(poiPayload.containsKey('transform'), isFalse);
+    });
+
+    test('addLodPoi sends the native transform method key', () async {
+      final style = PoiStyle(
+        id: 'lod-poi-style-transform',
+        icon: KImage.fromData(Uint8List.fromList([3, 2, 1]), 16, 16),
+      );
+      await controller.addPoiStyle(style);
+
+      await controller.lodLabelLayer.addLodPoi(
+        const LatLng(37.55, 126.98),
+        style: style,
+        transform: TransformMethod.absoluteRotationDecal,
+      );
+
+      final arguments = Map<String, dynamic>.from(
+        lastLabelCall!.arguments as Map,
+      );
+      final poiPayload = Map<String, dynamic>.from(arguments['poi'] as Map);
+      expect(
+        poiPayload['transformMethod'],
+        TransformMethod.absoluteRotationDecal.value,
+      );
+      expect(poiPayload.containsKey('transform'), isFalse);
+    });
+
+    test('invalidatePoi normalizes absent text for native handlers', () async {
+      final style = PoiStyle(
+        id: 'poi-style-invalidate',
+        icon: KImage.fromData(Uint8List.fromList([3, 2, 1]), 16, 16),
+      );
+      await controller.addPoiStyle(style);
+      final poi = await controller.labelLayer.addPoi(
+        const LatLng(37.55, 126.98),
+        style: style,
+      );
+
+      await poi.invalidate();
+
+      expect(lastLabelCall!.method, 'invalidatePoi');
+      final arguments = Map<String, dynamic>.from(
+        lastLabelCall!.arguments as Map,
+      );
+      expect(arguments['text'], '');
+    });
+
+    test('removeShareTransformPoi sends the target POI contract', () async {
+      final style = PoiStyle(
+        id: 'poi-style-share-transform',
+        icon: KImage.fromData(Uint8List.fromList([1]), 12, 12),
+      );
+      await controller.addPoiStyle(style);
+      final source = await controller.labelLayer.addPoi(
+        const LatLng(37.4, 127.1),
+        style: style,
+        id: 'source-poi',
+      );
+      final target = await controller.labelLayer.addPoi(
+        const LatLng(37.5, 127.2),
+        style: style,
+        id: 'target-poi',
+      );
+
+      await source.removeShareTransformPoi(target);
+
+      expect(lastLabelCall!.method, 'removeShareTransformPoi');
+      final arguments = Map<String, dynamic>.from(
+        lastLabelCall!.arguments as Map,
+      );
+      expect(arguments['poiId'], 'source-poi');
+      expect(arguments['targetLabelLayerId'], controller.labelLayer.id);
+      expect(arguments['targetPoiId'], 'target-poi');
+      expect(arguments.containsKey('targetShapeId'), isFalse);
+    });
+
     test(
       'addBadge returns Badge with id from overlay channel response',
       () async {
@@ -174,13 +287,27 @@ void main() {
           4,
           -3,
           badgeId: 'badge-explicit-id',
+          zOrder: 7,
+          visible: false,
         );
 
-        expect(badge.id, 'poi-badge-target-badge-id');
+        expect(badge.id, 'badge-explicit-id');
         expect(badge.offsetX, 4);
         expect(badge.offsetY, -3);
         expect(badge.image.width, 10);
         expect(badge.image.height, 10);
+        expect(badge.zOrder, 7);
+        expect(badge.visible, isFalse);
+
+        final arguments = Map<String, dynamic>.from(
+          lastLabelCall!.arguments as Map,
+        );
+        final badgePayload = Map<String, dynamic>.from(
+          arguments['badge'] as Map,
+        );
+        expect(badgePayload['id'], 'badge-explicit-id');
+        expect(badgePayload['zOrder'], 7);
+        expect(badgePayload['visible'], isFalse);
       },
     );
   });
@@ -201,6 +328,49 @@ void main() {
       expect(text.points.length, 2);
       expect(text.points.first.latitude, 37.1);
       expect(text.points.last.longitude, 127.2);
+    });
+
+    test('uses the labelId contract throughout the lifecycle', () async {
+      final initialStyle = PolylineTextStyle(16, const Color(0xFF111111));
+      final text = await controller.labelLayer.addPolylineText(
+        'initial',
+        const [LatLng(37.1, 127.1), LatLng(37.2, 127.2)],
+        style: initialStyle,
+        id: 'polyline-text-lifecycle',
+        visible: false,
+      );
+
+      var arguments = Map<String, dynamic>.from(
+        lastPolylineTextCall!.arguments as Map,
+      );
+      final label = Map<String, dynamic>.from(arguments['label'] as Map);
+      expect(label['visible'], isFalse);
+      expect(text.visible, isFalse);
+
+      final changedStyle = PolylineTextStyle(20, const Color(0xFF222222));
+      await text.changeTextAndStyles('changed', changedStyle);
+      arguments = Map<String, dynamic>.from(
+        lastPolylineTextCall!.arguments as Map,
+      );
+      expect(lastPolylineTextCall!.method, 'changePolylineTextStyle');
+      expect(arguments['labelId'], text.id);
+      expect(arguments.containsKey('poiId'), isFalse);
+
+      await text.show();
+      arguments = Map<String, dynamic>.from(
+        lastPolylineTextCall!.arguments as Map,
+      );
+      expect(lastPolylineTextCall!.method, 'changePolylineTextVisible');
+      expect(arguments['labelId'], text.id);
+      expect(text.visible, isTrue);
+
+      await text.remove();
+      arguments = Map<String, dynamic>.from(
+        lastPolylineTextCall!.arguments as Map,
+      );
+      expect(lastPolylineTextCall!.method, 'removePolylineText');
+      expect(arguments['labelId'], text.id);
+      expect(controller.labelLayer.getPolylineText(text.id), isNull);
     });
   });
 
@@ -246,7 +416,7 @@ void main() {
         badgeId: 'lod-badge-explicit-id',
       );
 
-      expect(badge.id, 'lod-badge-target-badge-id');
+      expect(badge.id, 'lod-badge-explicit-id');
       expect(badge.offsetX, 1);
       expect(badge.offsetY, 2);
     });
@@ -356,6 +526,21 @@ void main() {
       expect(style.id, 'route-style-explicit-id');
     });
 
+    test('supports corrected and deprecated RouteStyle getters', () async {
+      const styleId = 'route-style-getter-id';
+      final style = RouteStyle(
+        const Color(0xFF123456),
+        5,
+        id: styleId,
+      );
+
+      await controller.addRouteStyle(style);
+
+      expect(controller.getRouteStyle(styleId), same(style));
+      // ignore: deprecated_member_use_from_same_package
+      expect(controller.getRotueStyle(styleId), same(style));
+    });
+
     test('addRoute returns Route with id from channel response', () async {
       final style = RouteStyle(
         const Color(0xFF446688),
@@ -406,6 +591,24 @@ void main() {
   });
 
   group('DimScreen Mocking Tests', () {
+    test('setCover sends native DimScreenCover raw values', () async {
+      const expectedRawValues = {
+        DimScreenCover.map: 0,
+        DimScreenCover.mapAndLabel: 1,
+        DimScreenCover.all: 2,
+      };
+
+      for (final entry in expectedRawValues.entries) {
+        await controller.dimScreen.setCover(entry.key);
+
+        final arguments = Map<String, dynamic>.from(
+          lastDimScreenCall!.arguments as Map,
+        );
+        expect(arguments['cover'], entry.value);
+        expect(controller.dimScreen.cover, entry.key);
+      }
+    });
+
     test('addHighlightPolygonShape returns Polygon with channel id', () async {
       final style = PolygonStyle(
         const Color(0x66999999),
@@ -421,12 +624,18 @@ void main() {
         ]),
         style,
         id: 'dim-polygon-explicit-id',
+        zOrder: 42,
       );
       final polygonPoint = polygon.position as MapPoint;
 
       expect(polygon.id, 'dim-polygon-explicit-id');
       expect(polygonPoint.points.length, 3);
       expect(polygon.style.id, 'dim-polygon-style');
+      final arguments = Map<String, dynamic>.from(
+        lastDimScreenCall!.arguments as Map,
+      );
+      final payload = Map<String, dynamic>.from(arguments['polygon'] as Map);
+      expect(payload['zOrder'], 42);
     });
   });
 }

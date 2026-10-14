@@ -47,7 +47,7 @@ class LodLabelController extends BaseLabelController {
       "orderingType": orderingType.value,
       "radius": radius,
       "zOrder": zOrder,
-      "visable": visible,
+      "visible": visible,
       "clickable": _clickable,
     });
   }
@@ -123,7 +123,7 @@ class LodLabelController extends BaseLabelController {
         "clickable": true,
         "rank": rank,
         "styleId": style.id,
-        "transform": transform?.value,
+        "transformMethod": transform?.value,
         "visible": visible,
       },
     };

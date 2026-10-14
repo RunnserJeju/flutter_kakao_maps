@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Route;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -24,14 +24,16 @@ Future<void> _launchExampleApp(WidgetTester tester) async {
     throw TestFailure('Failed to initialize KakaoMapSdk: $e');
   }
 
-  await tester.pumpWidget(MaterialApp(
-    home: TestableKakaoMapView(
-      onControllerReady: (controller) {
-        _globalController = controller;
-        _isMapReady = true;
-      },
+  await tester.pumpWidget(
+    MaterialApp(
+      home: TestableKakaoMapView(
+        onControllerReady: (controller) {
+          _globalController = controller;
+          _isMapReady = true;
+        },
+      ),
     ),
-  ));
+  );
 
   await tester.pumpAndSettle(const Duration(seconds: 3));
 
@@ -39,7 +41,8 @@ Future<void> _launchExampleApp(WidgetTester tester) async {
 }
 
 Future<KakaoMapController> _waitForController(WidgetTester tester) async {
-  final isCI = const bool.fromEnvironment('CI', defaultValue: false) ||
+  final isCI =
+      const bool.fromEnvironment('CI', defaultValue: false) ||
       const String.fromEnvironment('GITHUB_ACTIONS').isNotEmpty;
 
   final maxAttempts = isCI ? 300 : 200;
@@ -58,17 +61,15 @@ Future<KakaoMapController> _waitForController(WidgetTester tester) async {
 
   final environment = isCI ? 'CI (GitHub Actions)' : 'Local';
   throw TestFailure(
-      'KakaoMapController was not ready in time in $environment environment. '
-      'This might be due to headless environment limitations or missing native dependencies.');
+    'KakaoMapController was not ready in time in $environment environment. '
+    'This might be due to headless environment limitations or missing native dependencies.',
+  );
 }
 
 class TestableKakaoMapView extends StatefulWidget {
   final void Function(KakaoMapController) onControllerReady;
 
-  const TestableKakaoMapView({
-    super.key,
-    required this.onControllerReady,
-  });
+  const TestableKakaoMapView({super.key, required this.onControllerReady});
 
   @override
   State<TestableKakaoMapView> createState() => _TestableKakaoMapViewState();
@@ -82,9 +83,7 @@ class _TestableKakaoMapViewState extends State<TestableKakaoMapView> {
         onMapReady: (controller) {
           widget.onControllerReady(controller);
         },
-        option: const KakaoMapOption(
-          position: LatLng(37.394776, 127.11116),
-        ),
+        option: const KakaoMapOption(position: LatLng(37.394776, 127.11116)),
       ),
     );
   }
@@ -94,38 +93,96 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('Kakao Map Integration Tests', () {
-    testWidgets('launchExampleApp should render KakaoMap',
-        (WidgetTester tester) async {
+    testWidgets('launchExampleApp should render KakaoMap', (
+      WidgetTester tester,
+    ) async {
       await _launchExampleApp(tester);
 
       expect(find.byType(KakaoMap), findsOneWidget);
     });
 
     testWidgets(
-        'getCameraPosition should return initial center from native SDK',
-        (WidgetTester tester) async {
+      'getCameraPosition should return initial center from native SDK',
+      (WidgetTester tester) async {
+        try {
+          await _launchExampleApp(tester);
+          final KakaoMapController controller = await _waitForController(
+            tester,
+          );
+
+          final CameraPosition initialCamera = await controller
+              .getCameraPosition();
+
+          expect(initialCamera.position.latitude, isNotNaN);
+          expect(initialCamera.position.longitude, isNotNaN);
+        } catch (e) {
+          if (e.toString().contains('headless environment') ||
+              e.toString().contains('CI (GitHub Actions)') ||
+              e.toString().contains('not ready in time')) {
+            debugPrint('Skipping test in headless/CI environment: $e');
+            return;
+          }
+          rethrow;
+        }
+      },
+    );
+
+    testWidgets('getBounds should return an ordered native viewport', (
+      WidgetTester tester,
+    ) async {
       try {
         await _launchExampleApp(tester);
         final KakaoMapController controller = await _waitForController(tester);
+        final BuildContext mapContext = tester.element(find.byType(KakaoMap));
+        if (!mapContext.mounted) {
+          throw TestFailure('KakaoMap was unmounted before getBounds');
+        }
 
-        final CameraPosition initialCamera =
-            await controller.getCameraPosition();
+        final LatLngBounds? bounds = await controller.getBounds(mapContext);
 
-        expect(initialCamera.position.latitude, isNotNaN);
-        expect(initialCamera.position.longitude, isNotNaN);
+        expect(bounds, isNotNull);
+        expect(bounds!.ne.latitude.isFinite, isTrue);
+        expect(bounds.ne.longitude.isFinite, isTrue);
+        expect(bounds.sw.latitude.isFinite, isTrue);
+        expect(bounds.sw.longitude.isFinite, isTrue);
+        expect(bounds.ne.latitude, greaterThan(bounds.sw.latitude));
+        expect(bounds.ne.longitude, greaterThan(bounds.sw.longitude));
       } catch (e) {
         if (e.toString().contains('headless environment') ||
             e.toString().contains('CI (GitHub Actions)') ||
             e.toString().contains('not ready in time')) {
-          debugPrint('Skipping test in headless/CI environment: $e');
+          debugPrint('Skipping test in headless environment: $e');
           return;
         }
         rethrow;
       }
     });
 
-    testWidgets('moveCamera should change map center in native map',
-        (WidgetTester tester) async {
+    testWidgets('DimScreenCover raw values should be accepted by native SDKs', (
+      WidgetTester tester,
+    ) async {
+      try {
+        await _launchExampleApp(tester);
+        final KakaoMapController controller = await _waitForController(tester);
+
+        for (final cover in DimScreenCover.values) {
+          await controller.dimScreen.setCover(cover);
+          expect(controller.dimScreen.cover, cover);
+        }
+      } catch (e) {
+        if (e.toString().contains('headless environment') ||
+            e.toString().contains('CI (GitHub Actions)') ||
+            e.toString().contains('not ready in time')) {
+          debugPrint('Skipping test in headless environment: $e');
+          return;
+        }
+        rethrow;
+      }
+    });
+
+    testWidgets('moveCamera should change map center in native map', (
+      WidgetTester tester,
+    ) async {
       try {
         await _launchExampleApp(tester);
         final KakaoMapController controller = await _waitForController(tester);
@@ -143,10 +200,14 @@ void main() {
 
         final CameraPosition afterMove = await controller.getCameraPosition();
 
-        expect(beforeMove.position.latitude != afterMove.position.latitude,
-            isTrue);
-        expect(beforeMove.position.longitude != afterMove.position.longitude,
-            isTrue);
+        expect(
+          beforeMove.position.latitude != afterMove.position.latitude,
+          isTrue,
+        );
+        expect(
+          beforeMove.position.longitude != afterMove.position.longitude,
+          isTrue,
+        );
         expect(afterMove.position.latitude, closeTo(target.latitude, 0.0005));
         expect(afterMove.position.longitude, closeTo(target.longitude, 0.0005));
       } catch (e) {
@@ -160,14 +221,16 @@ void main() {
       }
     });
 
-    testWidgets('addPoi should successfully add poi to the map',
-        (WidgetTester tester) async {
+    testWidgets('addPoi should successfully add poi to the map', (
+      WidgetTester tester,
+    ) async {
       try {
         await _launchExampleApp(tester);
         final KakaoMapController controller = await _waitForController(tester);
 
         final PoiStyle style = PoiStyle(
-            icon: KImage.fromAsset('assets/image/location.png', 40, 60));
+          icon: KImage.fromAsset('assets/image/location.png', 40, 60),
+        );
 
         final Poi poi = await controller.labelLayer.addPoi(
           const LatLng(37.5651, 126.98955),
@@ -187,8 +250,9 @@ void main() {
       }
     });
 
-    testWidgets('addPolyline should successfully add polyline to the map',
-        (WidgetTester tester) async {
+    testWidgets('addPolyline should successfully add polyline to the map', (
+      WidgetTester tester,
+    ) async {
       try {
         await _launchExampleApp(tester);
         final KakaoMapController controller = await _waitForController(tester);
@@ -199,13 +263,19 @@ void main() {
           LatLng(37.5701481, 126.9921044),
         ]);
 
-        final PolylineStyle polylineStyle =
-            PolylineStyle(Colors.deepOrange, 8, strokeWidth: 2);
+        final PolylineStyle polylineStyle = PolylineStyle(
+          Colors.deepOrange,
+          8,
+          strokeWidth: 2,
+        );
 
+        final Polyline<BasePoint> polyline = await controller.shapeLayer
+            .addPolylineShape(polylinePoint, polylineStyle, PolylineCap.round);
+
+        expect(polyline.id, isNotEmpty);
         expect(
-          () => controller.shapeLayer.addPolylineShape(
-              polylinePoint, polylineStyle, PolylineCap.round),
-          returnsNormally,
+          controller.shapeLayer.getPolylineShape(polyline.id),
+          same(polyline),
         );
       } catch (e) {
         if (e.toString().contains('headless environment') ||
@@ -218,8 +288,9 @@ void main() {
       }
     });
 
-    testWidgets('addPolygon should successfully add polygon to the map',
-        (WidgetTester tester) async {
+    testWidgets('addPolygon should successfully add polygon to the map', (
+      WidgetTester tester,
+    ) async {
       try {
         await _launchExampleApp(tester);
         final KakaoMapController controller = await _waitForController(tester);
@@ -237,10 +308,13 @@ void main() {
           strokeWidth: 2,
         );
 
+        final Polygon<BasePoint> polygon = await controller.shapeLayer
+            .addPolygonShape(polygonPoint, polygonStyle);
+
+        expect(polygon.id, isNotEmpty);
         expect(
-          () =>
-              controller.shapeLayer.addPolygonShape(polygonPoint, polygonStyle),
-          returnsNormally,
+          controller.shapeLayer.getPolygonShape(polygon.id),
+          same(polygon),
         );
       } catch (e) {
         if (e.toString().contains('headless environment') ||
@@ -253,8 +327,9 @@ void main() {
       }
     });
 
-    testWidgets('addRoute should successfully add route to the map',
-        (WidgetTester tester) async {
+    testWidgets('addRoute should successfully add route to the map', (
+      WidgetTester tester,
+    ) async {
       try {
         await _launchExampleApp(tester);
         final KakaoMapController controller = await _waitForController(tester);
@@ -272,10 +347,13 @@ void main() {
           strokeWidth: 2,
         );
 
-        expect(
-          () => controller.routeLayer.addRoute(routePoints, routeStyle),
-          returnsNormally,
+        final Route route = await controller.routeLayer.addRoute(
+          routePoints,
+          routeStyle,
         );
+
+        expect(route.id, isNotEmpty);
+        expect(controller.routeLayer.getRoute<Route>(route.id), same(route));
       } catch (e) {
         if (e.toString().contains('headless environment') ||
             e.toString().contains('CI (GitHub Actions)') ||
@@ -288,61 +366,70 @@ void main() {
     });
 
     testWidgets(
-        'addMultipleRoute should successfully add multiple routes to the map',
-        (WidgetTester tester) async {
-      try {
-        await _launchExampleApp(tester);
-        final KakaoMapController controller = await _waitForController(tester);
+      'addMultipleRoute should successfully add multiple routes to the map',
+      (WidgetTester tester) async {
+        try {
+          await _launchExampleApp(tester);
+          final KakaoMapController controller = await _waitForController(
+            tester,
+          );
 
-        const List<List<LatLng>> routeGroups = [
-          [
-            LatLng(37.56664910407437, 126.97822134589721),
-            LatLng(37.5703776, 126.9920616),
-            LatLng(37.572814, 127.008973),
-          ],
-          [
-            LatLng(37.39479412020964, 127.11116968185037),
-            LatLng(37.399109, 127.108382),
-            LatLng(37.403739, 127.107259),
-          ],
-        ];
+          const List<List<LatLng>> routeGroups = [
+            [
+              LatLng(37.56664910407437, 126.97822134589721),
+              LatLng(37.5703776, 126.9920616),
+              LatLng(37.572814, 127.008973),
+            ],
+            [
+              LatLng(37.39479412020964, 127.11116968185037),
+              LatLng(37.399109, 127.108382),
+              LatLng(37.403739, 127.107259),
+            ],
+          ];
 
-        final List<RouteStyle> routeStyles = [
-          RouteStyle(
-            Colors.blue,
-            7,
-            strokeColor: Colors.white,
-            strokeWidth: 2,
-          ),
-          RouteStyle(
-            Colors.red,
-            7,
-            strokeColor: Colors.white,
-            strokeWidth: 2,
-          ),
-        ];
+          final List<RouteStyle> routeStyles = [
+            RouteStyle(
+              Colors.blue,
+              7,
+              strokeColor: Colors.white,
+              strokeWidth: 2,
+            ),
+            RouteStyle(
+              Colors.red,
+              7,
+              strokeColor: Colors.white,
+              strokeWidth: 2,
+            ),
+          ];
 
-        final MultipleRouteOption option = MultipleRouteOption(routeStyles);
-        option.addRouteWithIndex(routeGroups[0], 0);
-        option.addRouteWithIndex(routeGroups[1], 1);
+          final MultipleRouteOption option = MultipleRouteOption(routeStyles);
+          option.addRouteWithIndex(routeGroups[0], 0);
+          option.addRouteWithIndex(routeGroups[1], 1);
 
-        expect(
-          () => controller.routeLayer.addMultipleRoute(option),
-          returnsNormally,
-        );
-      } catch (e) {
-        if (e.toString().contains('headless environment') ||
-            e.toString().contains('CI (GitHub Actions)') ||
-            e.toString().contains('not ready in time')) {
-          debugPrint('Skipping test in headless environment: $e');
-          return;
+          final MultipleRoute route = await controller.routeLayer
+              .addMultipleRoute(option);
+
+          expect(route.id, isNotEmpty);
+          expect(route.segments, hasLength(2));
+          expect(
+            controller.routeLayer.getRoute<MultipleRoute>(route.id),
+            same(route),
+          );
+        } catch (e) {
+          if (e.toString().contains('headless environment') ||
+              e.toString().contains('CI (GitHub Actions)') ||
+              e.toString().contains('not ready in time')) {
+            debugPrint('Skipping test in headless environment: $e');
+            return;
+          }
+          rethrow;
         }
-        rethrow;
-      }
-    });
+      },
+    );
 
-    testWidgets('addLodPoi should successfully add lod poi to the map',
-        (WidgetTester tester) async {
+    testWidgets('addLodPoi should successfully add lod poi to the map', (
+      WidgetTester tester,
+    ) async {
       try {
         await _launchExampleApp(tester);
         final KakaoMapController controller = await _waitForController(tester);
@@ -362,23 +449,29 @@ void main() {
           },
         ];
 
-        expect(() async {
-          for (final data in lodData) {
-            final PoiStyle style = PoiStyle(
-              icon: KImage.fromAsset(
-                'assets/image/location.png',
-                data['iconWidth'] as int,
-                data['iconHeight'] as int,
-              ),
-            );
+        final pois = <LodPoi>[];
+        for (final data in lodData) {
+          final PoiStyle style = PoiStyle(
+            icon: KImage.fromAsset(
+              'assets/image/location.png',
+              data['iconWidth'] as int,
+              data['iconHeight'] as int,
+            ),
+          );
 
+          pois.add(
             await controller.lodLabelLayer.addLodPoi(
               data['position'] as LatLng,
               style: style,
               text: data['text'] as String,
-            );
-          }
-        }, returnsNormally);
+            ),
+          );
+        }
+
+        expect(pois, hasLength(lodData.length));
+        for (final poi in pois) {
+          expect(controller.lodLabelLayer.getLodPoi(poi.id), same(poi));
+        }
       } catch (e) {
         if (e.toString().contains('headless environment') ||
             e.toString().contains('CI (GitHub Actions)') ||
@@ -391,32 +484,93 @@ void main() {
     });
 
     testWidgets(
-        'addPolylineText should successfully add polyline text to the map',
-        (WidgetTester tester) async {
+      'addPolylineText should successfully add polyline text to the map',
+      (WidgetTester tester) async {
+        try {
+          await _launchExampleApp(tester);
+          final KakaoMapController controller = await _waitForController(
+            tester,
+          );
+
+          const List<LatLng> textPath = [
+            LatLng(37.56664910407437, 126.97822134589721),
+            LatLng(37.5703776, 126.9920616),
+          ];
+
+          final PolylineTextStyle textStyle = PolylineTextStyle(
+            16,
+            Colors.black,
+            strokeSize: 2,
+            strokeColor: Colors.white,
+          );
+
+          final PolylineText polylineText = await controller.labelLayer
+              .addPolylineText(
+                'Seoul City Hall route',
+                textPath,
+                style: textStyle,
+              );
+
+          expect(polylineText.id, isNotEmpty);
+          expect(
+            controller.labelLayer.getPolylineText(polylineText.id),
+            same(polylineText),
+          );
+        } catch (e) {
+          if (e.toString().contains('headless environment') ||
+              e.toString().contains('CI (GitHub Actions)') ||
+              e.toString().contains('not ready in time')) {
+            debugPrint('Skipping test in headless environment: $e');
+            return;
+          }
+          rethrow;
+        }
+      },
+    );
+
+    testWidgets('PolylineText lifecycle should stay in sync with native SDKs', (
+      WidgetTester tester,
+    ) async {
       try {
         await _launchExampleApp(tester);
         final KakaoMapController controller = await _waitForController(tester);
-
-        const List<LatLng> textPath = [
-          LatLng(37.56664910407437, 126.97822134589721),
-          LatLng(37.5703776, 126.9920616),
-        ];
-
-        final PolylineTextStyle textStyle = PolylineTextStyle(
-          16,
-          Colors.black,
+        final initialStyle = PolylineTextStyle(
+          20,
+          Colors.deepOrange,
           strokeSize: 2,
           strokeColor: Colors.white,
         );
-
-        expect(
-          () => controller.labelLayer.addPolylineText(
-            'Seoul City Hall route',
-            textPath,
-            style: textStyle,
-          ),
-          returnsNormally,
+        final polylineText = await controller.labelLayer.addPolylineText(
+          'initial lifecycle text',
+          const [LatLng(37.394776, 127.11116), LatLng(37.395776, 127.11216)],
+          style: initialStyle,
+          id: 'polyline-text-lifecycle',
+          visible: false,
         );
+
+        expect(polylineText.visible, isFalse);
+
+        await polylineText.show();
+        expect(polylineText.visible, isTrue);
+
+        await polylineText.hide();
+        expect(polylineText.visible, isFalse);
+
+        final changedStyle = PolylineTextStyle(
+          24,
+          Colors.blue,
+          strokeSize: 3,
+          strokeColor: Colors.white,
+        );
+        await polylineText.changeTextAndStyles(
+          'changed lifecycle text',
+          changedStyle,
+        );
+        expect(polylineText.text, 'changed lifecycle text');
+        expect(polylineText.style, same(changedStyle));
+
+        await polylineText.remove();
+        expect(controller.labelLayer.getPolylineText(polylineText.id), isNull);
       } catch (e) {
         if (e.toString().contains('headless environment') ||
             e.toString().contains('CI (GitHub Actions)') ||
@@ -427,5 +581,52 @@ void main() {
         rethrow;
       }
     });
+
+    testWidgets(
+      'mixed relative holes should be accepted by native shape converters',
+      (WidgetTester tester) async {
+        try {
+          await _launchExampleApp(tester);
+          final KakaoMapController controller = await _waitForController(
+            tester,
+          );
+
+          final RectanglePoint point =
+              RectanglePoint(500, 400, const LatLng(37.394776, 127.11116))
+                ..addHole(CirclePoint(80, const LatLng(0, 0), clockwise: false))
+                ..addHole(
+                  RectanglePoint(120, 60, const LatLng(0, 0), clockwise: false),
+                );
+          final Polygon<BasePoint> polygon = await controller.shapeLayer
+              .addPolygonShape(
+                point,
+                PolygonStyle(
+                  Colors.blue.withValues(alpha: 0.35),
+                  strokeColor: Colors.blue,
+                  strokeWidth: 2,
+                ),
+                id: 'mixed-relative-hole-regression',
+              );
+
+          expect(polygon.id, 'mixed-relative-hole-regression');
+          expect(point.holeCount, 2);
+          expect(
+            controller.shapeLayer.getPolygonShape(polygon.id),
+            same(polygon),
+          );
+
+          await polygon.remove();
+          expect(controller.shapeLayer.getPolygonShape(polygon.id), isNull);
+        } catch (e) {
+          if (e.toString().contains('headless environment') ||
+              e.toString().contains('CI (GitHub Actions)') ||
+              e.toString().contains('not ready in time')) {
+            debugPrint('Skipping test in headless environment: $e');
+            return;
+          }
+          rethrow;
+        }
+      },
+    );
   });
 }

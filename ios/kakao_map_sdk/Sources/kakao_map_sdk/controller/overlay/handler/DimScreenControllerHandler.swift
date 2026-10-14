@@ -38,12 +38,30 @@ extension DimScreenControllerHandler {
         }
         let shape: Shape? = mapPolygonShape ?? polygonShape
 
+        func requirePolygon() -> Shape? {
+            guard let shape else {
+                result(missingNativeResource(method: call.method, resource: "dim-screen polygon", id: polygonId))
+                return nil
+            }
+            return shape
+        }
+
         switch call.method {
         case "setColor":
             let color = UIColor(value: asUInt(arguments!["color"]!))
             setDimColor(color: color, onSuccess: result)
         case "setVisible": setDimVisible(visible: asBool(arguments!["visible"]!), onSuccess: result)
-        case "setDimCover": setDimCover(cover: DimScreenCover(rawValue: asInt(arguments!["cover"]!))!, onSuccess: result)
+        case "setDimCover":
+            let coverValue = asInt(arguments!["cover"]!)
+            guard let cover = DimScreenCover(rawValue: coverValue) else {
+                result(FlutterError(
+                    code: "INVALID_DIM_SCREEN_COVER",
+                    message: "Unknown DimScreenCover raw value: \(coverValue)",
+                    details: nil
+                ))
+                return
+            }
+            setDimCover(cover: cover, onSuccess: result)
         case "addHighlightPolygonShape":
             let polygon = asDict(arguments!["polygon"]!)
             let position = asDict(polygon["position"]!)
@@ -59,38 +77,34 @@ extension DimScreenControllerHandler {
                 result(FlutterMethodNotImplemented)
             }
         case "removeHighlightPolygonShape":
-            if polygonShape == nil {
-                removeDimHighlightPolygonShape(shapeId: polygonId!, onSuccess: result)
+            guard requirePolygon() != nil, let id = polygonId else { return }
+            if mapPolygonShape != nil {
+                removeDimHighlightMapPolygonShape(shapeId: id, onSuccess: result)
             } else {
-                removeDimHighlightMapPolygonShape(shapeId: polygonId!, onSuccess: result)
+                removeDimHighlightPolygonShape(shapeId: id, onSuccess: result)
             }
         case "changePolygonVisible":
+            guard let shape = requirePolygon() else { return }
             let visible = asBool(arguments!["visible"]!)
-            changeShapeVisible(shape: shape!, visible: visible, onSuccess: result)
+            changeShapeVisible(shape: shape, visible: visible, onSuccess: result)
         case "changePolygon":
             let styleId = asString(arguments!["styleId"]!)
             let rawPosition = asDict(arguments!["position"]!)
             let positionType = asInt(rawPosition["type"]!)
             if positionType == 0 {
-                let points = asArray(rawPosition["points"]!, caster: { MapPoint(payload: asDict($0)) })
-                let holes = castSafty(rawPosition["holes"], caster: {
-                    asArray($0, caster: {
-                        asArray($0, caster: asDict).map {
-                            MapPoint(payload: $0)
-                        }
-                    })
-                })
-                let position = MapPolygon(exteriorRing: points, holes: holes, styleIndex: 0)
-                changeMapPolygonShape(shape: mapPolygonShape!, styleId: styleId, position: [position], onSuccess: result)
+                guard let mapPolygonShape else {
+                    result(missingNativeResource(method: call.method, resource: "dim-screen map polygon", id: polygonId))
+                    return
+                }
+                let position = MapPolygon(payload: rawPosition)
+                changeMapPolygonShape(shape: mapPolygonShape, styleId: styleId, position: [position], onSuccess: result)
             } else if positionType == 1 {
-                let points = asDotPoints(payload: rawPosition)
-                let holes = castSafty(rawPosition["holes"], caster: {
-                    asArray($0, caster: {
-                        asDotPoints(payload: asDict($0))!
-                    })
-                })
-                let position = Polygon(exteriorRing: points!, holes: holes, styleIndex: 0)
-                changePolygonShape(shape: polygonShape!, styleId: styleId, position: [position], onSuccess: result)
+                guard let polygonShape else {
+                    result(missingNativeResource(method: call.method, resource: "dim-screen relative polygon", id: polygonId))
+                    return
+                }
+                let position = Polygon(payload: rawPosition)
+                changePolygonShape(shape: polygonShape, styleId: styleId, position: [position], onSuccess: result)
             } else {
                 result(FlutterMethodNotImplemented)
             }

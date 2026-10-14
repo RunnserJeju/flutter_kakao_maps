@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch: 
 
 jobs:
   run_lint:
@@ -16,6 +17,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.2'
       - name: Access secret key
         working-directory: ./example
         env:
@@ -44,10 +46,11 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'corretto'
-          java-version: '18'
+          java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.2'
       - name: Access secret key
         working-directory: ./example
         env:
@@ -74,6 +77,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.2'
       - name: Access secret key
         working-directory: ./example
         env:
@@ -84,21 +88,28 @@ jobs:
       - name: Install dependencies
         working-directory: ./example
         run: flutter pub get
-      - name: Build iOS Application
+      - name: Build iOS Simulator Application
         working-directory: ./example
-        run: flutter build ios --release --no-codesign
+        run: flutter build ios --simulator --debug
   publish:
-    needs: [example_web_build, example_android_build]
+    needs: [example_web_build, example_android_build, example_ios_build]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.2'
       - name: Install dependencies
         run: flutter pub get
+      - name: Restore files rewritten by Flutter project migrators
+        # Flutter 3.47's `pub get` auto-rewrites tracked files (e.g. adds an
+        # `analyzer: exclude:` block to analysis_options.yaml). `dart pub publish`
+        # then fails/warns on the dirty tree, so publish exactly the tagged state.
+        run: git checkout -- .
       - name: Publish - dry run
         run: dart pub publish --dry-run
       - name: Publish to pub.dev

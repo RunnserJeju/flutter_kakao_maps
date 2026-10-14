@@ -20,6 +20,7 @@ mixin KakaoMapControllerHandler {
         final String className = method.arguments['className'];
         switch (className) {
           case 'MapAuthException':
+          case 'AuthenticatedFailed':
             onMapError(KakaoAuthError.fromMessageable(method.arguments));
             break;
           default:
@@ -33,14 +34,14 @@ mixin KakaoMapControllerHandler {
         }
         break;
       case "onCameraMoveStart":
-        final gesture = Platform.isIOS
+        final gesture = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS
             ? GestureType._fromMoveByValue(arguments['gesture'] as int)
             : GestureType.fromValue(arguments['gesture'] as int);
         onCameraMoveStart(gesture);
         break;
       case "onCameraMoveEnd":
         final position = CameraPosition.fromMessageable(arguments['position']);
-        final gesture = Platform.isIOS
+        final gesture = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS
             ? GestureType._fromMoveByValue(arguments['gesture'] as int)
             : GestureType.fromValue(arguments['gesture'] as int);
         onCameraMoveEnd(position, gesture);

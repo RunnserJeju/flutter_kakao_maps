@@ -42,7 +42,7 @@ class LabelController extends BaseLabelController {
       "competitionUnit": competitionUnit.value,
       "orderingType": orderingType.value,
       "zOrder": zOrder,
-      "visable": visible,
+      "visible": visible,
       "clickable": _clickable,
     });
   }
@@ -84,10 +84,10 @@ class LabelController extends BaseLabelController {
   }
 
   Future<void> _removeShareTransformPoi(String poiId, Poi poi) async {
-    await _invokeMethod("removeShareTransformShape", {
+    await _invokeMethod("removeShareTransformPoi", {
       "poiId": poiId,
       "targetLabelLayerId": poi._controller.id,
-      "targetShapeId": poi.id,
+      "targetPoiId": poi.id,
     });
   }
 
@@ -162,7 +162,7 @@ class LabelController extends BaseLabelController {
     await _invokeMethod("invalidatePoi", {
       "poiId": poiId,
       "styleId": styleId,
-      "text": text,
+      "text": text ?? "",
       "transition": transition,
     });
   }
@@ -219,12 +219,12 @@ class LabelController extends BaseLabelController {
   }
 
   Future<void> _changePolylineTextStyle(
-    String poiId,
+    String labelId,
     PolylineTextStyle style, [
     String? text,
   ]) async {
     await _invokeMethod("changePolylineTextStyle", {
-      "poiId": poiId,
+      "labelId": labelId,
       "styles": style.toMessageable(),
       "text": text,
     });
@@ -262,7 +262,7 @@ class LabelController extends BaseLabelController {
         "text": text,
         "rank": rank,
         "styleId": style.id,
-        "transform": transform?.value,
+        "transformMethod": transform?.value,
         "visible": visible,
       },
     };
@@ -340,6 +340,7 @@ class LabelController extends BaseLabelController {
       style: style,
       text: text,
       points: position,
+      visible: visible,
     );
     _polylineText[labelId] = label;
     return label;

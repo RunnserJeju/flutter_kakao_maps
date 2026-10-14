@@ -108,15 +108,43 @@ func asDotPoints(payload: [String: Any]) -> [CGPoint]? {
     switch asInt(payload["dotType"]!) {
     case 0:
         let radius = asDouble(payload["radius"]!)
-        let clockwise = castSafty(payload["closewise"], caster: asBool) ?? true
+        let clockwise = castSafty(payload["clockwise"], caster: asBool) ?? true
         return Primitives.getCirclePoints(radius: radius, numPoints: 720, cw: clockwise)
     case 1:
         let width = asDouble(payload["width"]!)
         let height = asDouble(payload["height"]!)
-        let clockwise = castSafty(payload["closewise"], caster: asBool) ?? true
+        let clockwise = castSafty(payload["clockwise"], caster: asBool) ?? true
         return Primitives.getRectanglePoints(width: width, height: height, cw: clockwise)
     default:
         return nil
+    }
+}
+
+extension Polygon {
+    convenience init(payload: [String: Any]) {
+        let points = asDotPoints(payload: payload)
+        let holes = castSafty(payload["holes"], caster: {
+            asArray($0, caster: {
+                asDotPoints(payload: asDict($0))!
+            })
+        })
+        self.init(exteriorRing: points!, holes: holes, styleIndex: 0)
+        mergeOverlappedHoles = castSafty(payload["mergeOverlappingHoles"], caster: asBool) ?? false
+    }
+}
+
+extension MapPolygon {
+    convenience init(payload: [String: Any]) {
+        let points = asArray(payload["points"]!, caster: { MapPoint(payload: asDict($0)) })
+        let holes = castSafty(payload["holes"], caster: {
+            asArray($0, caster: {
+                asArray($0, caster: asDict).map {
+                    MapPoint(payload: $0)
+                }
+            })
+        })
+        self.init(exteriorRing: points, holes: holes, styleIndex: 0)
+        mergeOverlappedHoles = castSafty(payload["mergeOverlappingHoles"], caster: asBool) ?? false
     }
 }
 
@@ -132,21 +160,8 @@ extension PolygonShapeOptions {
         }
 
         let position = asDict(payload["position"]!)
-        let points = asDotPoints(payload: position)
-        let holes = castSafty(position["holes"], caster: {
-            asArray($0, caster: {
-                asDotPoints(payload: asDict($0))!
-            })
-        })
-
         basePosition = MapPoint(payload: asDict(position["basePoint"]!))
-        polygons = [
-            Polygon(
-                exteriorRing: points!,
-                holes: holes,
-                styleIndex: 0
-            ),
-        ]
+        polygons = [Polygon(payload: position)]
     }
 }
 
@@ -162,21 +177,7 @@ extension MapPolygonShapeOptions {
         }
 
         let position = asDict(payload["position"]!)
-        let points = asArray(position["points"]!, caster: { MapPoint(payload: asDict($0)) })
-        let holes = castSafty(position["holes"], caster: {
-            asArray($0, caster: {
-                asArray($0, caster: asDict).map {
-                    MapPoint(payload: $0)
-                }
-            })
-        })
-        polygons = [
-            MapPolygon(
-                exteriorRing: points,
-                holes: holes,
-                styleIndex: 0
-            ),
-        ]
+        polygons = [MapPolygon(payload: position)]
     }
 }
 

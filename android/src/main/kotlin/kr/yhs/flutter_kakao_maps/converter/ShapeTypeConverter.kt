@@ -112,7 +112,7 @@ object ShapeTypeConverter {
           ?.asList<Any>()
           ?.map { element ->
             val elementPayload = element.asMap<Any?>()
-            when (rawPayload["dotType"]!!.asInt()) {
+            when (elementPayload["dotType"]!!.asInt()) {
               0 ->
                 PointVertex.fromCircle(
                   elementPayload["radius"]!!.asFloat(),
@@ -128,6 +128,7 @@ object ShapeTypeConverter {
             }
           }
           ?.let { setHolePoints(*it.toTypedArray()) }
+        rawPayload["mergeOverlappingHoles"]?.asBoolean()?.let(::setMergeOverlappingHoles)
       }
     }
 
@@ -139,6 +140,7 @@ object ShapeTypeConverter {
             ?.asList<Any>()
             ?.map { element -> LatLngVertex.from(element.asList<Any>().map { it.asLatLng() }) }
             ?.let { setHolePoints(*it.toTypedArray()) }
+          rawPayload["mergeOverlappingHoles"]?.asBoolean()?.let(::setMergeOverlappingHoles)
         }
     }
 
